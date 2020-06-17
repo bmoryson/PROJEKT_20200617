@@ -1,0 +1,83 @@
+*&---------------------------------------------------------------------*
+*& Report ZWSB_LIBRARY
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ZWSB_LIBRARY.
+
+PARAMETERS:
+           P_PESEL TYPE CHAR12.
+
+PARAMETERS : R1 RADIOBUTTON GROUP G1,
+             R2 RADIOBUTTON GROUP G1.
+
+DATA: LO_WSB           TYPE REF TO ZCL_WSB,
+      LS_CUSTOMER_DATA TYPE ZWSB_CUSTOMER,
+      LV_ACTION(10)    TYPE C.
+
+CREATE OBJECT LO_WSB.
+
+IF R1 EQ 'X'.
+  LV_ACTION = 'B'. "Borrow
+ELSE.
+  LV_ACTION = 'R'. "Receive
+ENDIF.
+
+IF P_PESEL IS INITIAL.
+  WRITE: / 'Proszę podać pesel.'.
+ENDIF.
+
+SELECT SINGLE * INTO LS_CUSTOMER_DATA FROM ZWSB_CUSTOMER WHERE PESEL EQ P_PESEL.
+IF SY-SUBRC NE 0 AND LV_ACTION NE 'R'. " sy-subrc <> 0 = no records found
+  LO_WSB->CREATE_NEW_CUSTOMER( "IF NEW CUSTOMER -> CREATE RECORD IN ZWSB_CUSTOMER
+    EXPORTING
+      IV_PESEL = P_PESEL
+    IMPORTING
+      ES_CUSTOMER = LS_CUSTOMER_DATA
+    EXCEPTIONS
+      NO_INPUT_DATA = 1 ).
+  IF SY-SUBRC EQ 1. "Exception handling - no input data in pop ups
+    WRITE: / 'Wprowadzono niekompletne dane dla nowego klienta.'.
+  ENDIF.
+ELSEIF SY-SUBRC NE 0 AND LV_ACTION EQ 'R'.
+  WRITE: / 'Błąd, brak klienta w systemie. Oddanie książki niemożliwe.'.
+ENDIF.
+
+CHECK LS_CUSTOMER_DATA IS NOT INITIAL.
+
+CASE LV_ACTION.
+
+  WHEN 'B'.
+    LO_WSB->BORROW_BOOK(
+    EXPORTING
+    IS_CUSTOMER = LS_CUSTOMER_DATA
+    EXCEPTIONS
+    NO_BOOK       = 1
+    BORROWED      = 2 ).
+    IF SY-SUBRC EQ 1.
+      WRITE: / 'Książka niedostępna, nie znaleziono żadnego dostępnego egzemplarza'.
+    ELSEIF SY-SUBRC EQ 2.
+      WRITE: / 'Proszę najpierw o zwrot poprzedniej książki'.
+    ELSEIF SY-SUBRC EQ 0.
+      WRITE: / 'Książka poprawnie wydana, księgowanie udane.'.
+    ENDIF.
+  WHEN 'R'.
+    LO_WSB->RECEIVE_BOOK(
+    EXPORTING IS_CUSTOMER = LS_CUSTOMER_DATA
+      EXCEPTIONS
+        NO_BOOK       = 1
+        WRONG_STATUS  = 2
+        AFTER_TERM    = 3
+        NO_LOCATION   = 4 ).
+    IF SY-SUBRC EQ 1.
+      WRITE: / 'Klient nie wypożyczył żadnej książki.'.
+    ELSEIF SY-SUBRC EQ 2.
+      WRITE: / 'Error. Bład systemowy.'.
+    ELSEIF SY-SUBRC EQ 3.
+      WRITE: / 'Książka po terminie. Proszę uregulować zależność w kasie.'.
+    ELSEIF SY-SUBRC EQ 4.
+      WRITE: / 'Błąd: Brak wolnego miejsca na półkach.'.
+    ELSEIF SY-SUBRC EQ 0.
+      WRITE: / 'Książka poprawnie zwrócona i zaksięgowana, dziękuję.'.
+    ENDIF.
+ENDCASE.
